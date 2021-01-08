@@ -1,222 +1,155 @@
-import math
 import copy
-
-def part1(data):
-  wizard_spells = {
+wizard_spells = {
     'poison': {'c': 173, 'd': 3, 'h': 0, 'a': 0, 't': 6, 'm': 0, 'od': 12 },
-    'magic_missile': {'c': 53, 'd': 4, 'h': 0, 'a': 0, 't': 1, 'm': 0, 'od': 4},
-    'drain': {'c': 73, 'd': 2, 'h': 2, 'a': 0, 't': 1, 'm': 0, 'od': 2 },
+    'magic_missile': {'c': 53, 'd': 4, 'h': 0, 'a': 0, 't': 0, 'm': 0, 'od': 4},
+    'drain': {'c': 73, 'd': 2, 'h': 2, 'a': 0, 't': 0, 'm': 0, 'od': 2 },
     'recharge': {'c': 229, 'd': 0, 'h': 0, 'a': 0, 't': 5, 'm': 101, 'od': 0 },
     'shield': {'c': 113, 'd': 0, 'h': 0, 'a': 7, 't': 6, 'm': 0, 'od': 0 },  
-  }
+}
 
-  boss_action = 8
+min_mana_spent = float('inf')
 
-  my_stats = [50, 0, 500]
-  boss_stats = [55, 0, 8]
+class GameState(object):
+    ongoing = 0
+    win = 1
+    loss = 2
 
-
-  player = 'player'
-  boss = 'boss'
-  def initial_state():
+class Character(object):
     
-    return {
-      player: [50, 0, 500, {'shield': 0, 'recharge': 0, 'poison': 0}, 0, False],
-      boss: [55, 8, True]
-    }
-  
-  def player(stats):
-    if stats[player][-1] == False:
-      return player
-    elif stats[boss][-1] == False:
-      return boss
-  
-  def actions(stats, pl):
-    actions = []
-    if pl == player:
-      for s, v in wizard_spells.items():
-        if stats[player][2] < v['m']:
-          continue
-        if v['t'] > 1:
-          if stats[player][3][s] > 1:
-            continue
-        actions.append(s)
-    elif pl == boss:
-      if stats[player][3]['shield'] > 1:
-        dam = boss_action - stats[player][1]
-      else:
-        dam = boss_action
-      if dam < 0:
-        dam = 1
-      actions.append(dam)
-    print(actions)
-    return actions
-  
-  def result(stats, action):
-    cp = copy.deepcopy(stats)
-    for e in cp[player][3]:
-      if cp[player][3][e] > 0:
-        cp[boss][0] -= wizard_spells[e]['d']
-        cp[player][3][e] -= 1
-        if e == 'shield' and cp[player][3][e] == 0:
-          cp[player][1] -= wizard_spells[e]['a']
+    def __init__(self, hp):
+        self.hp = hp
     
-    if isinstance(action, int):
-      cp[player][0] -= action
-      cp[boss][-1] == True
-      cp[player][-1] = False
-    elif isinstance(action, str):
-      
-      cp[player][2] -= wizard_spells[action]['c']
-      cp[player][4] += wizard_spells[action]['c']
-      cp[player][1] += wizard_spells[action]['a']
-      cp[player][0] += wizard_spells[action]['h']
-      cp[player][2] += wizard_spells[action]['m']
-      cp[player][-1] = True
-      cp[boss][-1] = False
-      
-      if action == 'magic_missile' or action == 'drain':
-        cp[boss][0] -= wizard_spells[action]['d']   
-      elif action == 'posion' or action == 'shield' or action == 'recharge':
-        cp[player][3][action] = wizard_spells[action]['t']
-    return cp
-  
-  def winner(stats):
-    if stats[player][0] <= 0:
-      winner = boss
-    elif stats[boss][0] <= 0:
-      winner = player
-    elif stats[player][2] <= 0:
-      winner = boss
-    else:
-      winner = None
+
+
+class Player(Character):
+
+    def __init__(self, hp, armour, mana, shield=0, recharge=0, poison=0):
+        super().__init__(hp)
+        self.mana = mana
+        self.armour = armour
+        self.effects = {
+            'shield': shield,
+            'recharge': recharge,
+            'poison': poison,
+        }
+
+    def __str__(self):
+        return f'<Player(hp={self.hp}, mana={self.mana}, armour={self.armour}, effects={self.effects})>'
+
+
+class Boss(Character):
+
+    def __init__(self, hp, damage):
+        super().__init__(hp)
+        self.damage = damage
     
-    return (winner, stats[player][4])
-  
-  def terminal(stats):
-    if winner(stats) != None:
-      if stats[player][0] > 0 and stats[boss][0] > 0 and stats[player][2] > 0:
-        return False
-      else:
-        return True
-    else:
-      return False
-  
-  def utility(stats):
-    win = winner(stats)
-    if win[0] == boss:
-      return -1
-    elif win[0] == player:
-      return 1
-    else:
-      return 0
+    def __str__(self):
+        return f'<Boss(hp={self.hp}, damage={self.damage})>'
+
+
+class Node(object):
+
+    def __init__(self, mana_spent, player, boss, state):
+        self.mana_spent = mana_spent
+        self.player = player
+        self.boss = boss
+        self.state = state  # type: GameState
+        self.children = []
+
+        self.make_children()
     
-  
-  def maxValue(stats, alpha, beta):
-    """
-    Returns the best utility for an action with alpha beta pruning for a max-player.
-    """
-    # Check the board is not terminal, if so, return utility
-    if terminal(stats):
-        return utility(stats)
-    # Initiate a variable to store bestv utility, which for a max player is the lowest value possible
-    pl = player(stats)
-    bestv = float("-inf")
-
-    # Loop through actions, calculating the minimum value, uses recursion
-    for action in actions(stats, pl):
-        v = minValue(result(stats, action), alpha, beta)
-        # Find the max value between current v and bestv and update bestv
-        bestv = max(bestv, v)
-        # Find max between alpha and bestv and update alpha
-        alpha = max(alpha, bestv)
-        # Check if beta is less than or = to alpha, if so stop searching tree and return bestv
-        if beta <= alpha:
-            break
-    return bestv
-
-  def minValue(stats, alpha, beta):
-    """
-    Returns the best utility for an action with alpha beta pruning for a min-player.
-    """
-    # Check the board is not terminal, if so, return utility
-    if terminal(stats):
-        return utility(stats)
-    # Initiate a variable to store bestv utility, which for a min player is the highest value possible
-
-    pl = player(stats)
-    bestv = float("inf")
+    def __str__(self):
+        return f'<Node(mana_spent={self.mana_spent}, player={str(self.player)}, boss={self.boss}, state={self.state}, num_children={len(self.children)})>'
     
-    # Loop through actions, calculating the maximum value, uses recursion
-    for action in actions(stats, pl):
-        v = maxValue(result(stats, action), alpha, beta)
-        # Find the min value between current v and bestv and update bestv
-        bestv = min(bestv, v)
-        # Find min between beta and bestv and update beta
-        beta = min(beta, bestv)
-        # Check if beta is less than or = to alpha, if so stop searching tree and return bestv
-        if beta <= alpha:
-            break
-    return bestv
-  
-  def minimax(stats):
-    """
-    Returns the optimal action for the current player on the stats.
-    """
-    # Check if board is terminal, if so return None
-    if terminal(stats):
-        return None
+    @staticmethod
+    def apply_effects(player, boss):
+        for k, v in player.effects.items():
+            if v > 0:
+                player.effects[k] -= 1
+                boss.hp -= wizard_spells[k]['d']
+                player.mana += wizard_spells[k]['m']
+                if k == 'shield' and player.effects[k] == 0:
+                    player.armour -= wizard_spells[k]['a']
+        return player, boss
+
     
-    # Workout whose turn it is using the player function
-    pl = player(stats)
+    def player_turn(self, player, boss, spell):
+        player, boss = self.apply_effects(player, boss)
 
-    # Workout all the possible moves from the board
-    moves = actions(stats, pl)
-
-    # Initiate a list, which will store {"moves": action, "v": best utility value}
-    utility = []
-
-    # Inititate a explored list to keep track of the actions already explored
-    explored = set()
-
-    # Initiate the best alpha and beta variables (alpha is for the max-player and beta is for the min-player)
-    alpha = float("-inf")
-    beta = float("inf")
-
-    # If next player is player, use the minValue function
-    if pl == player:
-        # Loop through actions
-        for move in moves:
-            # Check the move is not in explored
-            if not move in explored:
-                # Add to list the (row, cell) pair as move and call minValue function, to find opponents best value and from that find your best value
-                utility.append({'move': move, 'v': minValue(result(stats, move), alpha, beta)})
-                # Add the move to explored
-                explored.add(move)
-        # Find the max value from all actions
-        optimal = max(utility, key=lambda x: x['v'])
-        return optimal['move']
+        player.mana -= wizard_spells[spell]['c']
+        player.armour += wizard_spells[spell]['a']
+        player.hp += wizard_spells[spell]['h']
+        
+        if spell in ('magic_missile', 'drain'):
+            boss.hp -= wizard_spells[spell]['d']   
+        elif spell in ('poison', 'shield', 'recharge'):
+            player.effects[spell] = wizard_spells[spell]['t']
+        return player, boss
     
-    # If the next player is boss, use the max-value function
-    if pl == boss:
-        # Loop through actions
-        for move in moves:
-            # Check the move is not in explored
-            if not move in explored:
-                # Add to list the (row, cell) pair as move and call maxValue function, to find opponents best value and from that find your best value
-                utility.append({'move': move, 'v': maxValue(result(stats, move), alpha, beta)})
-                # Add the move to explored
-                explored.add(move)
-        # Find the min value from all actions 
-        optimal = min(utility, key=lambda x: x['v'])
-        return optimal['move']
-  
-  stats = initial_state()
-  while(terminal(stats) == False):
-    move = minimax(stats)
-    print(move) 
-    stats = result(stats, move)
-    print(stats)
+    def boss_turn(self, player, boss):
+        player, boss = self.apply_effects(player, boss)
+        player.hp -= max(boss.damage - player.armour, 1)
+        return player, boss
+
+
+    def turn(self, spell):
+        new_player = copy.deepcopy(self.player)
+        new_boss = copy.deepcopy(self.boss)
+        
+        # Part 2 - Hard mode (player loses hp at start of each turn)
+        new_player.hp -= 1
+        if new_player.hp <= 0:
+            game_state = GameState.loss
+            new_mana = self.mana_spent
+        else:
+            new_mana = self.mana_spent + wizard_spells[spell]['c']
+            new_player, new_boss = self.player_turn(new_player, new_boss, spell)
+            new_player, new_boss = self.boss_turn(new_player, new_boss)
+
+            game_state = GameState.ongoing
+            if new_boss.hp <= 0:
+                game_state = GameState.win
+                global min_mana_spent
+                if new_mana < min_mana_spent:
+                    min_mana_spent = new_mana
+            elif new_player.hp <= 0:
+                game_state = GameState.loss
+        
+        child = Node(
+            mana_spent=new_mana,
+            player=new_player,
+            boss=new_boss,
+            state=game_state,
+        )
+        return child
+
+
+
+    def make_children(self):
+        if self.state != GameState.ongoing:
+            return
+
+        for k, v in wizard_spells.items():
+            # Check which spells we can cast based on mana and current effects
+            if self.player.mana < v['c']:
+                continue
+            if self.mana_spent + v['c'] > min_mana_spent:
+                continue
+            if k in self.player.effects and self.player.effects[k] > 1:
+                continue
+
+            self.children.append(
+                self.turn(k)
+            )
+
+def part1(data):
+
+  pl = Player(50, 0, 500)
+  b = Boss(55, 8)
+
+  tree = Node(0, pl, b, GameState.ongoing)
+  print(min_mana_spent)
+  return min_mana_spent
 
 
 
